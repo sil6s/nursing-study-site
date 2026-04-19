@@ -274,6 +274,10 @@
   .session-score.bad { color: var(--wrong); }
   .session-score.mid { color: #b07a00; }
 
+  .library-actions { display: flex; gap: 8px; align-items: center; }
+  .item-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .meta-note { color: var(--text-muted); font-size: 0.8rem; margin-top: 6px; }
+
   /* Tabs inside modal */
   .tabs { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
   .tab { padding: 10px 18px; font-size: 0.875rem; font-weight: 500; cursor: pointer; border-bottom: 2px solid transparent; color: var(--text-muted); transition: all 0.15s; }
@@ -291,6 +295,7 @@
   <div class="logo">NursePrep <span>Study Quiz</span></div>
   <div class="header-right">
     <button class="btn btn-ghost btn-sm" id="btn-generate">✨ Generate Questions</button>
+    <button class="btn btn-ghost btn-sm" id="btn-clear-local">🧹 Clear Local Data</button>
     <button class="btn btn-ghost btn-sm" id="btn-upload-header" style="display:none">📂 New Quiz</button>
   </div>
 </header>
@@ -331,6 +336,19 @@
     <div class="sessions-section" id="sessions-section" style="display:none">
       <h2>📊 Your Recent Sessions</h2>
       <div class="session-list" id="session-list"></div>
+    </div>
+
+    <div class="sessions-section" id="library-section" style="display:none">
+      <h2>📚 Saved Quiz Library</h2>
+      <div class="session-list" id="library-list"></div>
+    </div>
+
+    <div class="sessions-section" id="missed-section" style="display:none">
+      <h2>🎯 Missed Questions</h2>
+      <div class="library-actions" style="margin-bottom:10px;">
+        <button class="btn btn-ghost btn-sm" id="btn-practice-missed" onclick="practiceMissed()">Practice Missed Questions</button>
+      </div>
+      <div class="session-list" id="missed-list"></div>
     </div>
   </div>
 
@@ -472,9 +490,15 @@ let currentTab = 'prompt';
 
 // ── STORAGE ──
 const SESSIONS_KEY = 'nurseprep_sessions';
+const QUIZ_LIBRARY_KEY = 'nurseprep_quiz_library';
+const MISSED_QUESTIONS_KEY = 'nurseprep_missed_questions';
 
 function saveSessions(s) { try { localStorage.setItem(SESSIONS_KEY, JSON.stringify(s)); } catch(e){} }
 function loadSessions() { try { return JSON.parse(localStorage.getItem(SESSIONS_KEY) || '[]'); } catch(e){ return []; } }
+function saveQuizLibrary(items) { try { localStorage.setItem(QUIZ_LIBRARY_KEY, JSON.stringify(items)); } catch(e){} }
+function loadQuizLibrary() { try { return JSON.parse(localStorage.getItem(QUIZ_LIBRARY_KEY) || '[]'); } catch(e){ return []; } }
+function saveMissedQuestions(items) { try { localStorage.setItem(MISSED_QUESTIONS_KEY, JSON.stringify(items)); } catch(e){} }
+function loadMissedQuestions() { try { return JSON.parse(localStorage.getItem(MISSED_QUESTIONS_KEY) || '[]'); } catch(e){ return []; } }
 
 // ── SCREENS ──
 function showScreen(id) {
@@ -484,7 +508,7 @@ function showScreen(id) {
 }
 
 // ── HOME ──
-function goHome() { showScreen('screen-home'); renderSessions(); }
+function goHome() { showScreen('screen-home'); renderSessions(); renderLibrary(); renderMissedQuestions(); }
 
 function renderSessions() {
   const sessions = loadSessions();
@@ -499,6 +523,49 @@ function renderSessions() {
     return `<div class="session-item">
       <div class="session-info"><strong>${escHtml(s.title)}</strong><span>${date} · ${s.total} questions</span></div>
       <div class="session-score ${cls}">${pct}%</div>
+    </div>`;
+  }).join('');
+}
+
+function renderLibrary() {
+  const library = loadQuizLibrary();
+  const sec = document.getElementById('library-section');
+  const list = document.getElementById('library-list');
+  if (!library.length) { sec.style.display = 'none'; return; }
+  sec.style.display = 'block';
+  list.innerHTML = library.slice().sort((a,b) => b.updatedAt - a.updatedAt).map(item => {
+    const date = new Date(item.updatedAt).toLocaleDateString(undefined, {month:'short', day:'numeric', year:'numeric'});
+    return `<div class="session-item">
+      <div class="session-info">
+        <strong>${escHtml(item.title)}</strong>
+        <span>Updated ${date} · ${item.questionCount} questions</span>
+      </div>
+      <div class="item-actions">
+        <button class="btn btn-ghost btn-sm" onclick="startSavedQuiz('${item.id}')">Start</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderMissedQuestions() {
+  const missed = loadMissedQuestions();
+  const sec = document.getElementById('missed-section');
+  const list = document.getElementById('missed-list');
+  const btn = document.getElementById('btn-practice-missed');
+  if (!missed.length) {
+    sec.style.display = 'none';
+    return;
+  }
+  sec.style.display = 'block';
+  btn.style.display = missed.length ? 'inline-flex' : 'none';
+  list.innerHTML = missed.slice().sort((a,b) => b.timesMissed - a.timesMissed).slice(0, 10).map((item, idx) => {
+    const date = new Date(item.lastMissedAt).toLocaleDateString(undefined, {month:'short', day:'numeric'});
+    return `<div class="session-item">
+      <div class="session-info">
+        <strong>${idx + 1}. ${escHtml(item.question)}</strong>
+        <span>Missed ${item.timesMissed}x · Last missed ${date}${item.topic ? ' · ' + escHtml(item.topic) : ''}</span>
+        <div class="meta-note">Correct answer: ${escHtml(item.answer)}</div>
+      </div>
     </div>`;
   }).join('');
 }
@@ -540,15 +607,45 @@ function loadQuestions(data, title) {
   let qs = Array.isArray(data) ? data : (data.questions || []);
   if (!qs.length) { showToast('No questions found in that file.'); return; }
 
-  // Validate basic structure
-  qs = qs.filter(q => q.question && q.options && q.answer);
+  // Validate basic structure and weed out placeholder/sample content
+  const hasPlaceholder = (text) => /(sample question|sample answer|placeholder|lorem ipsum|question text here)/i.test(String(text || ''));
+  qs = qs.filter(q => {
+    if (!q.question || !q.options || !q.answer) return false;
+    if (!Array.isArray(q.options) || q.options.length !== 4) return false;
+    if (hasPlaceholder(q.question) || q.options.some(opt => hasPlaceholder(typeof opt === 'string' ? opt : opt?.text))) return false;
+    return true;
+  });
   if (!qs.length) { showToast('Questions are missing required fields. Check your JSON.'); return; }
 
   questions = qs;
   quizTitle = (data.title || title || 'Quiz').slice(0,60);
   answers = {};
   currentIndex = 0;
+  upsertQuizLibrary(questions, quizTitle);
   startQuiz();
+}
+
+function upsertQuizLibrary(qs, title) {
+  const library = loadQuizLibrary();
+  const seed = `${title}|${qs.length}|${(qs[0] && qs[0].question) || ''}`.toLowerCase();
+  const id = btoa(unescape(encodeURIComponent(seed))).replace(/=+$/,'').slice(0, 20);
+  const item = {
+    id,
+    title,
+    questionCount: qs.length,
+    updatedAt: Date.now(),
+    data: { title, questions: qs }
+  };
+  const idx = library.findIndex(x => x.id === id);
+  if (idx >= 0) library[idx] = item;
+  else library.push(item);
+  saveQuizLibrary(library.slice(-50));
+}
+
+function startSavedQuiz(id) {
+  const item = loadQuizLibrary().find(x => x.id === id);
+  if (!item) { showToast('Saved quiz not found.'); return; }
+  loadQuestions(item.data, item.title);
 }
 
 // ── QUIZ ──
@@ -626,6 +723,7 @@ function selectAnswer(letter, el) {
   });
 
   showFeedback(letter, q);
+  playAnswerSound(letter === correctLetter);
   document.getElementById('btn-next').disabled = false;
 }
 
@@ -697,6 +795,7 @@ function showResults() {
   const sessions = loadSessions();
   sessions.push({ title: quizTitle, correct, total, date: Date.now() });
   saveSessions(sessions.slice(-50));
+  trackMissedQuestions();
 
   // Review list
   const reviewList = document.getElementById('review-list');
@@ -719,6 +818,36 @@ function showResults() {
   }).join('');
 }
 
+function trackMissedQuestions() {
+  const missedMap = new Map(loadMissedQuestions().map(m => [m.key, m]));
+  const letters = ['A','B','C','D','E'];
+
+  questions.forEach((q, i) => {
+    const userAns = answers[i];
+    const correctAns = String(q.answer).trim().toUpperCase();
+    if (userAns === correctAns) return;
+    const key = btoa(unescape(encodeURIComponent(`${q.question}|${correctAns}`))).replace(/=+$/,'').slice(0, 28);
+    const optIdx = letters.indexOf(correctAns);
+    const correctText = optIdx >= 0 ? q.options[optIdx] : correctAns;
+    const found = missedMap.get(key) || {
+      key,
+      question: q.question,
+      options: q.options,
+      answer: `${correctAns} – ${typeof correctText === 'string' ? correctText : (correctText?.text || '')}`,
+      explanation: q.explanation || '',
+      topic: quizTitle,
+      timesMissed: 0,
+      lastMissedAt: 0
+    };
+    found.timesMissed += 1;
+    found.lastMissedAt = Date.now();
+    found.topic = quizTitle;
+    missedMap.set(key, found);
+  });
+
+  saveMissedQuestions(Array.from(missedMap.values()).slice(-300));
+}
+
 function restartQuiz() { answers = {}; currentIndex = 0; startQuiz(); }
 
 function retryWrong() {
@@ -728,6 +857,19 @@ function retryWrong() {
   answers = {};
   currentIndex = 0;
   startQuiz();
+}
+
+function practiceMissed() {
+  const missed = loadMissedQuestions().sort((a,b) => b.timesMissed - a.timesMissed).slice(0, 30);
+  if (!missed.length) { showToast('No missed questions yet.'); return; }
+  const rebuilt = missed.map((m, idx) => ({
+    id: idx + 1,
+    question: m.question,
+    options: m.options,
+    answer: String(m.answer).split('–')[0].trim(),
+    explanation: m.explanation || 'Review the concept and try again.'
+  }));
+  loadQuestions({ title: 'Missed Questions Practice', questions: rebuilt }, 'Missed Questions Practice');
 }
 
 // ── GENERATE MODAL ──
@@ -757,26 +899,37 @@ function updatePromptPreview() {
     hard: 'challenging NCLEX-style select-all-that-apply and priority questions'
   };
 
-  const prompt = `Please generate ${count} nursing school quiz questions on the topic: "${topic}".
+  const prompt = `You are creating a REAL nursing quiz bank.
+Generate exactly ${count} complete nursing school multiple-choice questions on the topic: "${topic}".
 
 Difficulty: ${diffMap[diff]}.
 ${notes ? `\nBase the questions on this content:\n"""\n${notes}\n"""\n` : ''}
-Return ONLY a valid JSON array with no extra text, markdown, or explanation. Use exactly this format:
+Think carefully before finalizing each question so every item is complete, accurate, and clinically correct.
+Every item MUST be a full, real question. Do NOT output placeholders like "Sample question", "Question text here", "Sample answer", or template filler.
+Return ONLY a valid JSON array with no extra text, markdown, headings, or explanation.
+After generating, self-check the full JSON for correctness and formatting before returning it.
+Use exactly this format and key order for EVERY object:
 
 [
   {
     "id": 1,
-    "question": "Question text here?",
-    "options": ["A. Option one", "B. Option two", "C. Option three", "D. Option four"],
+    "question": "Complete clinical question text ending with a question mark?",
+    "options": ["Option one text", "Option two text", "Option three text", "Option four text"],
     "answer": "A",
     "explanation": "Clear explanation of why this is correct and why other options are wrong."
   }
 ]
 
 Rules:
+- Return EXACTLY ${count} objects in the JSON array (not fewer, not more)
 - The "answer" field must be a single letter: A, B, C, or D
 - Each question must have exactly 4 options
+- Options must be plain option text only (do NOT prefix with A./B./C./D.)
 - Include a clear explanation for every question
+- Ensure each option is plausible and only one answer is correct
+- Do not repeat questions
+- Do not include placeholders, examples, templates, or unfinished items
+- Make sure the final JSON can be saved directly as a .json downloadable file with no edits
 - Only return the JSON array — nothing else`;
 
   document.getElementById('generated-prompt').textContent = prompt;
@@ -823,6 +976,34 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 3000);
 }
 
+function playAnswerSound(isCorrect) {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return;
+  const ctx = new AudioCtx();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = 'sine';
+  osc.frequency.value = isCorrect ? 860 : 230;
+  gain.gain.value = 0.0001;
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  const now = ctx.currentTime;
+  gain.gain.exponentialRampToValueAtTime(0.06, now + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + (isCorrect ? 0.17 : 0.22));
+  osc.start(now);
+  osc.stop(now + (isCorrect ? 0.18 : 0.23));
+}
+
+function clearLocalData() {
+  const ok = confirm('Clear local quiz history, saved quiz library, and missed-question tracking?');
+  if (!ok) return;
+  [SESSIONS_KEY, QUIZ_LIBRARY_KEY, MISSED_QUESTIONS_KEY].forEach(k => localStorage.removeItem(k));
+  showToast('Local data cleared.');
+  renderSessions();
+  renderLibrary();
+  renderMissedQuestions();
+}
+
 // ── HELPERS ──
 function escHtml(str) {
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -831,6 +1012,9 @@ function escHtml(str) {
 // ── INIT ──
 updatePromptPreview();
 renderSessions();
+renderLibrary();
+renderMissedQuestions();
+document.getElementById('btn-clear-local').addEventListener('click', clearLocalData);
 </script>
 </body>
 </html>
