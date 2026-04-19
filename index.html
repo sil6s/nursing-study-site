@@ -274,6 +274,10 @@
   .session-score.bad { color: var(--wrong); }
   .session-score.mid { color: #b07a00; }
 
+  .library-actions { display: flex; gap: 8px; align-items: center; }
+  .item-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .meta-note { color: var(--text-muted); font-size: 0.8rem; margin-top: 6px; }
+
   /* Tabs inside modal */
   .tabs { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
   .tab { padding: 10px 18px; font-size: 0.875rem; font-weight: 500; cursor: pointer; border-bottom: 2px solid transparent; color: var(--text-muted); transition: all 0.15s; }
@@ -291,6 +295,7 @@
   <div class="logo">NursePrep <span>Study Quiz</span></div>
   <div class="header-right">
     <button class="btn btn-ghost btn-sm" id="btn-generate">✨ Generate Questions</button>
+    <button class="btn btn-ghost btn-sm" id="btn-clear-local">🧹 Clear Local Data</button>
     <button class="btn btn-ghost btn-sm" id="btn-upload-header" style="display:none">📂 New Quiz</button>
   </div>
 </header>
@@ -309,6 +314,11 @@
           <span class="action-icon">📂</span>
           <h3>Upload Question File</h3>
           <p>Upload a JSON question file you've already generated and start quizzing yourself right away.</p>
+        </div>
+        <div class="action-card" onclick="openGenerateModal(); switchTab('upload-json')">
+          <span class="action-icon">📋</span>
+          <h3>Paste JSON</h3>
+          <p>Already have JSON text from AI? Paste it directly without saving a file first.</p>
         </div>
         <div class="action-card" id="card-generate" onclick="openGenerateModal()">
           <span class="action-icon">✨</span>
@@ -332,6 +342,19 @@
       <h2>📊 Your Recent Sessions</h2>
       <div class="session-list" id="session-list"></div>
     </div>
+
+    <div class="sessions-section" id="library-section" style="display:none">
+      <h2>📚 Saved Quiz Library</h2>
+      <div class="session-list" id="library-list"></div>
+    </div>
+
+    <div class="sessions-section" id="missed-section" style="display:none">
+      <h2>🎯 Missed Questions</h2>
+      <div class="library-actions" style="margin-bottom:10px;">
+        <button class="btn btn-ghost btn-sm" id="btn-practice-missed" onclick="practiceMissed()">Practice Missed Questions</button>
+      </div>
+      <div class="session-list" id="missed-list"></div>
+    </div>
   </div>
 
   <!-- ══ QUIZ SCREEN ══ -->
@@ -340,6 +363,7 @@
       <div>
         <div class="quiz-meta" id="quiz-chapter-label"></div>
         <div class="quiz-meta" style="margin-top:2px">Question <strong id="q-current">1</strong> of <strong id="q-total">0</strong></div>
+        <div class="quiz-meta" id="quiz-progress-pct" style="margin-top:2px">0% complete</div>
       </div>
       <div style="display:flex; gap:8px; align-items:center">
         <span style="font-size:0.85rem; color:var(--text-muted)">Score: <strong id="live-score">0</strong></span>
@@ -352,6 +376,7 @@
       <div class="question-num" id="q-num-label">Question 1</div>
       <div class="question-text" id="q-text"></div>
       <div class="options" id="options-container"></div>
+      <button class="btn btn-primary btn-sm" id="btn-check" style="display:none; margin-top:14px" onclick="checkCurrentAnswer()">Check Answer</button>
       <div class="feedback-box" id="feedback-box">
         <div class="feedback-label" id="feedback-label"></div>
         <div id="feedback-text"></div>
@@ -472,9 +497,19 @@ let currentTab = 'prompt';
 
 // ── STORAGE ──
 const SESSIONS_KEY = 'nurseprep_sessions';
+const QUIZ_LIBRARY_KEY = 'nurseprep_quiz_library';
+const MISSED_QUESTIONS_KEY = 'nurseprep_missed_questions';
+const QUIZ_PROGRESS_KEY = 'nurseprep_quiz_progress';
 
 function saveSessions(s) { try { localStorage.setItem(SESSIONS_KEY, JSON.stringify(s)); } catch(e){} }
 function loadSessions() { try { return JSON.parse(localStorage.getItem(SESSIONS_KEY) || '[]'); } catch(e){ return []; } }
+function saveQuizLibrary(items) { try { localStorage.setItem(QUIZ_LIBRARY_KEY, JSON.stringify(items)); } catch(e){} }
+function loadQuizLibrary() { try { return JSON.parse(localStorage.getItem(QUIZ_LIBRARY_KEY) || '[]'); } catch(e){ return []; } }
+function saveMissedQuestions(items) { try { localStorage.setItem(MISSED_QUESTIONS_KEY, JSON.stringify(items)); } catch(e){} }
+function loadMissedQuestions() { try { return JSON.parse(localStorage.getItem(MISSED_QUESTIONS_KEY) || '[]'); } catch(e){ return []; } }
+function saveProgressState(state) { try { localStorage.setItem(QUIZ_PROGRESS_KEY, JSON.stringify(state)); } catch(e){} }
+function loadProgressState() { try { return JSON.parse(localStorage.getItem(QUIZ_PROGRESS_KEY) || 'null'); } catch(e){ return null; } }
+function clearProgressState() { try { localStorage.removeItem(QUIZ_PROGRESS_KEY); } catch(e){} }
 
 // ── SCREENS ──
 function showScreen(id) {
@@ -484,7 +519,7 @@ function showScreen(id) {
 }
 
 // ── HOME ──
-function goHome() { showScreen('screen-home'); renderSessions(); }
+function goHome() { showScreen('screen-home'); renderSessions(); renderLibrary(); renderMissedQuestions(); }
 
 function renderSessions() {
   const sessions = loadSessions();
@@ -501,6 +536,105 @@ function renderSessions() {
       <div class="session-score ${cls}">${pct}%</div>
     </div>`;
   }).join('');
+}
+
+function renderLibrary() {
+  const library = loadQuizLibrary();
+  const sec = document.getElementById('library-section');
+  const list = document.getElementById('library-list');
+  if (!library.length) { sec.style.display = 'none'; return; }
+  sec.style.display = 'block';
+  list.innerHTML = library.slice().sort((a,b) => b.updatedAt - a.updatedAt).map(item => {
+    const date = new Date(item.updatedAt).toLocaleDateString(undefined, {month:'short', day:'numeric', year:'numeric'});
+    return `<div class="session-item">
+      <div class="session-info">
+        <strong>${escHtml(item.title)}</strong>
+        <span>Updated ${date} · ${item.questionCount} questions</span>
+      </div>
+      <div class="item-actions">
+        <button class="btn btn-ghost btn-sm" onclick="startSavedQuiz('${item.id}')">Start</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderMissedQuestions() {
+  const missed = loadMissedQuestions();
+  const sec = document.getElementById('missed-section');
+  const list = document.getElementById('missed-list');
+  const btn = document.getElementById('btn-practice-missed');
+  if (!missed.length) {
+    sec.style.display = 'none';
+    return;
+  }
+  sec.style.display = 'block';
+  btn.style.display = missed.length ? 'inline-flex' : 'none';
+  list.innerHTML = missed.slice().sort((a,b) => b.timesMissed - a.timesMissed).slice(0, 10).map((item, idx) => {
+    const date = new Date(item.lastMissedAt).toLocaleDateString(undefined, {month:'short', day:'numeric'});
+    return `<div class="session-item">
+      <div class="session-info">
+        <strong>${idx + 1}. ${escHtml(item.question)}</strong>
+        <span>Missed ${item.timesMissed}x · Last missed ${date}${item.topic ? ' · ' + escHtml(item.topic) : ''}</span>
+        <div class="meta-note">Correct answer: ${escHtml(item.answer)}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function shuffleArray(arr) {
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+function normalizeQuestions(qs) {
+  const letters = ['A','B','C','D','E','F'];
+  return qs.map((raw, idx) => {
+    const q = JSON.parse(JSON.stringify(raw));
+    q.id = q.id || idx + 1;
+    q.type = String(q.type || '').toLowerCase();
+    const options = (Array.isArray(q.options) ? q.options : []).map(opt => typeof opt === 'string' ? opt : (opt?.text || ''));
+    q.options = options;
+
+    if (!q.type) {
+      if (Array.isArray(q.answer) && q.answer.length > 1) q.type = 'sata';
+      else if (typeof q.answer === 'string' && q.answer.includes(',')) q.type = 'sata';
+      else q.type = 'multiple';
+    }
+
+    if (q.type === 'order') {
+      const orderAnswer = Array.isArray(q.answer) ? q.answer : String(q.answer || '').split(',').map(s => s.trim()).filter(Boolean);
+      const answerTexts = orderAnswer.map(a => {
+        const upper = String(a).toUpperCase();
+        const li = letters.indexOf(upper);
+        return li >= 0 && options[li] ? options[li] : a;
+      });
+      q.correctOrder = answerTexts;
+      q.options = shuffleArray(options);
+      return q;
+    }
+
+    const indexed = options.map((text, i) => ({ text, orig: letters[i] || String(i + 1) }));
+    const shuffled = shuffleArray(indexed);
+    q.options = shuffled.map(x => x.text);
+
+    if (q.type === 'sata') {
+      const rawAnswers = Array.isArray(q.answer) ? q.answer : String(q.answer || '').split(',').map(s => s.trim());
+      const correctSet = new Set(rawAnswers.map(x => String(x).toUpperCase()));
+      q.answer = shuffled.map((opt, i) => ({ letter: letters[i], orig: opt.orig }))
+        .filter(x => correctSet.has(x.orig))
+        .map(x => x.letter);
+    } else {
+      const correct = String(q.answer || '').trim().toUpperCase();
+      const found = shuffled.findIndex(opt => opt.orig === correct);
+      q.answer = letters[found >= 0 ? found : 0];
+      q.type = 'multiple';
+    }
+    return q;
+  });
 }
 
 // ── FILE UPLOAD ──
@@ -540,15 +674,45 @@ function loadQuestions(data, title) {
   let qs = Array.isArray(data) ? data : (data.questions || []);
   if (!qs.length) { showToast('No questions found in that file.'); return; }
 
-  // Validate basic structure
-  qs = qs.filter(q => q.question && q.options && q.answer);
+  // Validate basic structure and weed out placeholder/sample content
+  const hasPlaceholder = (text) => /(sample question|sample answer|placeholder|lorem ipsum|question text here)/i.test(String(text || ''));
+  qs = qs.filter(q => {
+    if (!q.question || !q.options || !q.answer) return false;
+    if (!Array.isArray(q.options) || q.options.length !== 4) return false;
+    if (hasPlaceholder(q.question) || q.options.some(opt => hasPlaceholder(typeof opt === 'string' ? opt : opt?.text))) return false;
+    return true;
+  });
   if (!qs.length) { showToast('Questions are missing required fields. Check your JSON.'); return; }
 
-  questions = qs;
+  questions = normalizeQuestions(qs);
   quizTitle = (data.title || title || 'Quiz').slice(0,60);
   answers = {};
   currentIndex = 0;
+  upsertQuizLibrary(questions, quizTitle);
   startQuiz();
+}
+
+function upsertQuizLibrary(qs, title) {
+  const library = loadQuizLibrary();
+  const seed = `${title}|${qs.length}|${(qs[0] && qs[0].question) || ''}`.toLowerCase();
+  const id = btoa(unescape(encodeURIComponent(seed))).replace(/=+$/,'').slice(0, 20);
+  const item = {
+    id,
+    title,
+    questionCount: qs.length,
+    updatedAt: Date.now(),
+    data: { title, questions: qs }
+  };
+  const idx = library.findIndex(x => x.id === id);
+  if (idx >= 0) library[idx] = item;
+  else library.push(item);
+  saveQuizLibrary(library.slice(-50));
+}
+
+function startSavedQuiz(id) {
+  const item = loadQuizLibrary().find(x => x.id === id);
+  if (!item) { showToast('Saved quiz not found.'); return; }
+  loadQuestions(item.data, item.title);
 }
 
 // ── QUIZ ──
@@ -566,28 +730,56 @@ function renderQuestion() {
   document.getElementById('quiz-chapter-label').innerHTML = `<strong>${escHtml(quizTitle)}</strong>`;
   document.getElementById('q-num-label').textContent = `Question ${currentIndex + 1}`;
   document.getElementById('q-text').textContent = q.question;
-  document.getElementById('progress-fill').style.width = `${((currentIndex) / total) * 100}%`;
+  const answeredCount = Object.keys(answers).length;
+  const pctComplete = Math.round((answeredCount / total) * 100);
+  document.getElementById('progress-fill').style.width = `${pctComplete}%`;
+  document.getElementById('quiz-progress-pct').textContent = `${pctComplete}% complete`;
 
   // Options
   const opts = document.getElementById('options-container');
+  const checkBtn = document.getElementById('btn-check');
   const letters = ['A','B','C','D','E'];
   const saved = answers[currentIndex];
+  const type = q.type || 'multiple';
 
-  opts.innerHTML = q.options.map((opt, i) => {
-    const letter = letters[i] || String(i+1);
-    const optText = typeof opt === 'string' ? opt : (opt.text || JSON.stringify(opt));
-    let cls = 'option';
-    if (saved !== undefined) {
-      cls += ' disabled';
-      const correctLetter = String(q.answer).trim().toUpperCase();
-      if (letter === correctLetter) cls += ' correct';
-      else if (letter === saved) cls += ' wrong';
-    }
-    return `<button class="${cls}" onclick="selectAnswer('${letter}', this)" data-letter="${letter}">
-      <span class="opt-letter">${letter}</span>
-      <span class="opt-text">${escHtml(optText)}</span>
-    </button>`;
-  }).join('');
+  if (type === 'order') {
+    const selected = Array.isArray(saved) ? saved : [];
+    checkBtn.style.display = 'inline-flex';
+    opts.innerHTML = `
+      <div class="review-expl" style="margin-bottom:10px;">🔢 Put these in the correct order:</div>
+      ${q.correctOrder.map((_, i) => `
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+          <strong style="min-width:24px;">${i + 1}.</strong>
+          <select onchange="setOrderSelection(${i}, this.value)" ${saved ? 'disabled' : ''} style="flex:1; border:1px solid var(--border); border-radius:8px; padding:10px;">
+            <option value="">Choose item...</option>
+            ${q.options.map(opt => `<option value="${escHtml(opt)}" ${selected[i] === opt ? 'selected' : ''}>${escHtml(opt)}</option>`).join('')}
+          </select>
+        </div>
+      `).join('')}
+      <div class="review-expl">Items: ${q.options.map(o => `• ${escHtml(o)}`).join('<br>')}</div>
+    `;
+    checkBtn.disabled = saved !== undefined || selected.length !== q.correctOrder.length || selected.some(x => !x);
+  } else {
+    const selectedSet = new Set(Array.isArray(saved) ? saved : (saved ? [saved] : []));
+    checkBtn.style.display = type === 'sata' ? 'inline-flex' : 'none';
+    opts.innerHTML = q.options.map((opt, i) => {
+      const letter = letters[i] || String(i+1);
+      const optText = typeof opt === 'string' ? opt : (opt.text || JSON.stringify(opt));
+      let cls = 'option';
+      if (selectedSet.has(letter)) cls += ' selected';
+      if (saved !== undefined) {
+        cls += ' disabled';
+        const correctLetters = type === 'sata' ? (q.answer || []) : [String(q.answer).trim().toUpperCase()];
+        if (correctLetters.includes(letter)) cls += ' correct';
+        else if (selectedSet.has(letter)) cls += ' wrong';
+      }
+      return `<button class="${cls}" onclick="${type === 'sata' ? `toggleSata('${letter}')` : `selectAnswer('${letter}', this)`}" data-letter="${letter}">
+        <span class="opt-letter">${letter}</span>
+        <span class="opt-text">${escHtml(optText)}</span>
+      </button>`;
+    }).join('');
+    checkBtn.disabled = type === 'sata' ? !selectedSet.size || saved !== undefined : true;
+  }
 
   // Feedback
   const fb = document.getElementById('feedback-box');
@@ -609,6 +801,7 @@ function renderQuestion() {
     return ans === correctLetter;
   }).length;
   document.getElementById('live-score').textContent = `${correct}/${Object.keys(answers).length}`;
+  saveProgressState({ quizTitle, currentIndex, answers, questions, date: Date.now() });
 }
 
 function selectAnswer(letter, el) {
@@ -626,20 +819,73 @@ function selectAnswer(letter, el) {
   });
 
   showFeedback(letter, q);
+  playAnswerSound(letter === correctLetter);
   document.getElementById('btn-next').disabled = false;
+  saveProgressState({ quizTitle, currentIndex, answers, questions, date: Date.now() });
+}
+
+function toggleSata(letter) {
+  if (answers[currentIndex] !== undefined) return;
+  const current = Array.isArray(answers[currentIndex]) ? answers[currentIndex] : [];
+  answers[currentIndex] = current.includes(letter) ? current.filter(l => l !== letter) : [...current, letter];
+  renderQuestion();
+}
+
+function setOrderSelection(pos, value) {
+  if (answers[currentIndex] !== undefined) return;
+  const q = questions[currentIndex];
+  const arr = Array.isArray(answers[currentIndex]) ? [...answers[currentIndex]] : Array(q.correctOrder.length).fill('');
+  arr[pos] = value;
+  answers[currentIndex] = arr;
+  renderQuestion();
+}
+
+function checkCurrentAnswer() {
+  const q = questions[currentIndex];
+  if (answers[currentIndex] === undefined) return;
+  const chosen = answers[currentIndex];
+  showFeedback(chosen, q);
+  document.getElementById('btn-next').disabled = false;
+  const isCorrect = isAnswerCorrect(chosen, q);
+  playAnswerSound(isCorrect);
+  saveProgressState({ quizTitle, currentIndex, answers, questions, date: Date.now() });
+}
+
+function isAnswerCorrect(chosen, q) {
+  if (q.type === 'sata') {
+    const a = Array.isArray(chosen) ? [...chosen].sort().join('|') : '';
+    const b = Array.isArray(q.answer) ? [...q.answer].sort().join('|') : '';
+    return a === b;
+  }
+  if (q.type === 'order') {
+    const a = Array.isArray(chosen) ? chosen.join('|') : '';
+    const b = Array.isArray(q.correctOrder) ? q.correctOrder.join('|') : '';
+    return a === b;
+  }
+  return String(chosen).trim().toUpperCase() === String(q.answer).trim().toUpperCase();
 }
 
 function showFeedback(chosen, q) {
   const correctLetter = String(q.answer).trim().toUpperCase();
-  const isCorrect = chosen === correctLetter;
+  const isCorrect = isAnswerCorrect(chosen, q);
   const fb = document.getElementById('feedback-box');
   const lbl = document.getElementById('feedback-label');
   const txt = document.getElementById('feedback-text');
 
   fb.className = 'feedback-box show ' + (isCorrect ? 'correct-fb' : 'wrong-fb');
   lbl.className = 'feedback-label ' + (isCorrect ? 'c' : 'w');
-  lbl.textContent = isCorrect ? '✅ Correct!' : `❌ Incorrect — The correct answer is ${correctLetter}`;
+  if (q.type === 'sata') {
+    const ans = (q.answer || []).join(', ');
+    lbl.textContent = isCorrect ? '✅ Correct!' : `❌ Not quite — Correct choices: ${ans}`;
+  } else if (q.type === 'order') {
+    lbl.textContent = isCorrect ? '✅ Correct order!' : '❌ Incorrect order';
+  } else {
+    lbl.textContent = isCorrect ? '✅ Correct!' : `❌ Incorrect — The correct answer is ${correctLetter}`;
+  }
   txt.textContent = q.explanation || '';
+  if (q.type === 'order' && !isCorrect && Array.isArray(q.correctOrder)) {
+    txt.textContent = `${q.explanation || ''}\nCorrect order: ${q.correctOrder.join(' → ')}`.trim();
+  }
 }
 
 function nextQuestion() {
@@ -657,7 +903,7 @@ function prevQuestion() {
 }
 
 function exitQuiz() {
-  if (Object.keys(answers).length > 0 && confirm('Exit quiz? Your progress will be saved in your session history if you finish.')) goHome();
+  if (Object.keys(answers).length > 0 && confirm('Exit quiz? Progress is auto-saved and can be resumed.')) goHome();
   else if (Object.keys(answers).length === 0) goHome();
 }
 
@@ -665,12 +911,12 @@ function exitQuiz() {
 function showResults() {
   showScreen('screen-results');
   const total = questions.length;
-  const correct = Object.entries(answers).filter(([i, ans]) => String(questions[+i].answer).trim().toUpperCase() === ans).length;
-  const pct = Math.round((correct / total) * 100);
+  const correctCount = Object.entries(answers).filter(([i, ans]) => isAnswerCorrect(ans, questions[+i])).length;
+  const pct = Math.round((correctCount / total) * 100);
 
   document.getElementById('score-pct').textContent = pct + '%';
-  document.getElementById('stat-correct').textContent = correct;
-  document.getElementById('stat-wrong').textContent = total - correct;
+  document.getElementById('stat-correct').textContent = correctCount;
+  document.getElementById('stat-wrong').textContent = total - correctCount;
   document.getElementById('stat-total').textContent = total;
 
   const msg = pct >= 90 ? 'Outstanding work! You\'re very well prepared.' :
@@ -691,19 +937,21 @@ function showResults() {
   ring.style.stroke = pct >= 80 ? 'var(--correct)' : pct >= 60 ? '#b07a00' : 'var(--wrong)';
 
   // Show retry wrong button only if there are wrong ones
-  document.getElementById('btn-retry-wrong').style.display = (correct < total) ? 'inline-flex' : 'none';
+  document.getElementById('btn-retry-wrong').style.display = (correctCount < total) ? 'inline-flex' : 'none';
 
   // Save session
   const sessions = loadSessions();
-  sessions.push({ title: quizTitle, correct, total, date: Date.now() });
+  sessions.push({ title: quizTitle, correct: correctCount, total, date: Date.now() });
   saveSessions(sessions.slice(-50));
+  trackMissedQuestions();
+  clearProgressState();
 
   // Review list
   const reviewList = document.getElementById('review-list');
   reviewList.innerHTML = questions.map((q, i) => {
     const userAns = answers[i];
-    const correctAns = String(q.answer).trim().toUpperCase();
-    const isCorrect = userAns === correctAns;
+    const correctAns = Array.isArray(q.answer) ? q.answer.join(', ') : String(q.answer).trim().toUpperCase();
+    const isCorrect = isAnswerCorrect(userAns, q);
     const letters = ['A','B','C','D','E'];
     const optText = (letter) => {
       const idx = letters.indexOf(letter);
@@ -712,21 +960,76 @@ function showResults() {
     };
     return `<div class="review-item ${isCorrect ? 'r-correct' : 'r-wrong'}">
       <div class="review-q">${i+1}. ${escHtml(q.question)}</div>
-      ${!isCorrect ? `<div class="review-ans">Your answer: <strong>${userAns ? userAns + ' – ' + escHtml(optText(userAns)) : 'Not answered'}</strong></div>` : ''}
-      <div class="review-ans">Correct answer: <strong>${correctAns} – ${escHtml(optText(correctAns))}</strong></div>
+      ${!isCorrect ? `<div class="review-ans">Your answer: <strong>${Array.isArray(userAns) ? escHtml(userAns.join(', ')) : (userAns ? userAns + ' – ' + escHtml(optText(userAns)) : 'Not answered')}</strong></div>` : ''}
+      <div class="review-ans">Correct answer: <strong>${q.type === 'order' ? escHtml((q.correctOrder || []).join(' → ')) : `${escHtml(correctAns)}${q.type === 'multiple' ? ' – ' + escHtml(optText(correctAns)) : ''}`}</strong></div>
       ${q.explanation ? `<div class="review-expl">💡 ${escHtml(q.explanation)}</div>` : ''}
     </div>`;
   }).join('');
 }
 
+function trackMissedQuestions() {
+  const missedMap = new Map(loadMissedQuestions().map(m => [m.key, m]));
+  const letters = ['A','B','C','D','E'];
+
+  questions.forEach((q, i) => {
+    const userAns = answers[i];
+    const correctAns = Array.isArray(q.answer) ? q.answer.join(',') : String(q.answer).trim().toUpperCase();
+    if (isAnswerCorrect(userAns, q)) return;
+    const key = btoa(unescape(encodeURIComponent(`${q.question}|${correctAns}`))).replace(/=+$/,'').slice(0, 28);
+    const optIdx = letters.indexOf(correctAns);
+    const correctText = optIdx >= 0 ? q.options[optIdx] : correctAns;
+    const found = missedMap.get(key) || {
+      key,
+      question: q.question,
+      options: q.options,
+      answer: q.type === 'order' ? (q.correctOrder || []).join(' → ') : `${correctAns} – ${typeof correctText === 'string' ? correctText : (correctText?.text || '')}`,
+      explanation: q.explanation || '',
+      topic: quizTitle,
+      timesMissed: 0,
+      lastMissedAt: 0
+    };
+    found.timesMissed += 1;
+    found.lastMissedAt = Date.now();
+    found.topic = quizTitle;
+    missedMap.set(key, found);
+  });
+
+  saveMissedQuestions(Array.from(missedMap.values()).slice(-300));
+}
+
 function restartQuiz() { answers = {}; currentIndex = 0; startQuiz(); }
 
 function retryWrong() {
-  const wrongOnes = questions.filter((q, i) => String(q.answer).trim().toUpperCase() !== answers[i]);
+  const wrongOnes = questions.filter((q, i) => !isAnswerCorrect(answers[i], q));
   if (!wrongOnes.length) return;
   questions = wrongOnes;
   answers = {};
   currentIndex = 0;
+  startQuiz();
+}
+
+function practiceMissed() {
+  const missed = loadMissedQuestions().sort((a,b) => b.timesMissed - a.timesMissed).slice(0, 30);
+  if (!missed.length) { showToast('No missed questions yet.'); return; }
+  const rebuilt = missed.map((m, idx) => ({
+    id: idx + 1,
+    question: m.question,
+    options: m.options,
+    answer: String(m.answer).split('–')[0].trim(),
+    explanation: m.explanation || 'Review the concept and try again.'
+  }));
+  loadQuestions({ title: 'Missed Questions Practice', questions: rebuilt }, 'Missed Questions Practice');
+}
+
+function resumeProgressIfAvailable() {
+  const saved = loadProgressState();
+  if (!saved || !saved.questions || !saved.questions.length) return;
+  const shouldResume = confirm(`Resume "${saved.quizTitle || 'Quiz'}" where you left off?`);
+  if (!shouldResume) return;
+  questions = saved.questions;
+  quizTitle = saved.quizTitle || 'Quiz';
+  answers = saved.answers || {};
+  currentIndex = Math.min(saved.currentIndex || 0, questions.length - 1);
   startQuiz();
 }
 
@@ -757,26 +1060,48 @@ function updatePromptPreview() {
     hard: 'challenging NCLEX-style select-all-that-apply and priority questions'
   };
 
-  const prompt = `Please generate ${count} nursing school quiz questions on the topic: "${topic}".
+  const prompt = `You are creating a REAL nursing quiz bank.
+Generate exactly ${count} complete nursing school multiple-choice questions on the topic: "${topic}".
 
-Difficulty: ${diffMap[diff]}.
+Difficulty: ${diffMap[diff]} with high rigor.
 ${notes ? `\nBase the questions on this content:\n"""\n${notes}\n"""\n` : ''}
-Return ONLY a valid JSON array with no extra text, markdown, or explanation. Use exactly this format:
+Think carefully before finalizing each question so every item is complete, accurate, and clinically correct.
+Every item MUST be a full, real question. Do NOT output placeholders like "Sample question", "Question text here", "Sample answer", or template filler.
+Return ONLY a valid JSON array with no extra text, markdown, headings, or explanation.
+After generating, self-check the full JSON for correctness and formatting before returning it.
+Question mix requirement:
+- ~70% hard scenario/application questions
+- ~20% select-all-that-apply questions ("type":"sata" with multiple correct letters)
+- ~10% rank/order questions ("type":"order" with ordered answer list)
+Use exactly this format and key order for EVERY object:
 
 [
   {
     "id": 1,
-    "question": "Question text here?",
-    "options": ["A. Option one", "B. Option two", "C. Option three", "D. Option four"],
+    "type": "multiple",
+    "question": "Complete clinical question text ending with a question mark?",
+    "options": ["Option one text", "Option two text", "Option three text", "Option four text"],
     "answer": "A",
     "explanation": "Clear explanation of why this is correct and why other options are wrong."
   }
 ]
 
 Rules:
+- Return EXACTLY ${count} objects in the JSON array (not fewer, not more)
 - The "answer" field must be a single letter: A, B, C, or D
+- For "type":"sata", "answer" must be an array of letters like ["A","C"]
+- For "type":"order", "answer" must be an array in correct order (letters or exact option text)
 - Each question must have exactly 4 options
+- Options must be plain option text only (do NOT prefix with A./B./C./D.)
 - Include a clear explanation for every question
+- Ensure each option is plausible and only one answer is correct
+- Do NOT make the correct answer consistently the longest option
+- Keep option length balanced so length does not reveal the correct answer
+- Distribute correct letters across A/B/C/D (no obvious pattern)
+- Do not repeat questions
+- Do not include placeholders, examples, templates, or unfinished items
+- Add variety and engagement (clinical twists, prioritization, safety-first reasoning)
+- Make sure the final JSON can be saved directly as a .json downloadable file with no edits
 - Only return the JSON array — nothing else`;
 
   document.getElementById('generated-prompt').textContent = prompt;
@@ -823,6 +1148,34 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 3000);
 }
 
+function playAnswerSound(isCorrect) {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return;
+  const ctx = new AudioCtx();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = 'sine';
+  osc.frequency.value = isCorrect ? 860 : 230;
+  gain.gain.value = 0.0001;
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  const now = ctx.currentTime;
+  gain.gain.exponentialRampToValueAtTime(0.06, now + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + (isCorrect ? 0.17 : 0.22));
+  osc.start(now);
+  osc.stop(now + (isCorrect ? 0.18 : 0.23));
+}
+
+function clearLocalData() {
+  const ok = confirm('Clear local quiz history, saved quiz library, and missed-question tracking?');
+  if (!ok) return;
+  [SESSIONS_KEY, QUIZ_LIBRARY_KEY, MISSED_QUESTIONS_KEY, QUIZ_PROGRESS_KEY].forEach(k => localStorage.removeItem(k));
+  showToast('Local data cleared.');
+  renderSessions();
+  renderLibrary();
+  renderMissedQuestions();
+}
+
 // ── HELPERS ──
 function escHtml(str) {
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -831,6 +1184,10 @@ function escHtml(str) {
 // ── INIT ──
 updatePromptPreview();
 renderSessions();
+renderLibrary();
+renderMissedQuestions();
+resumeProgressIfAvailable();
+document.getElementById('btn-clear-local').addEventListener('click', clearLocalData);
 </script>
 </body>
 </html>
