@@ -374,6 +374,8 @@
 
     <div class="question-card" id="question-card">
       <div class="question-num" id="q-num-label">Question 1</div>
+      <div class="quiz-meta" id="q-type-label" style="margin-bottom:4px;"></div>
+      <div class="quiz-meta" id="q-instruction-label" style="margin-bottom:12px; font-weight:600;"></div>
       <div class="question-text" id="q-text"></div>
       <div class="options" id="options-container"></div>
       <button class="btn btn-primary btn-sm" id="btn-check" style="display:none; margin-top:14px" onclick="checkCurrentAnswer()">Check Answer</button>
@@ -492,6 +494,7 @@
 let questions = [];
 let currentIndex = 0;
 let answers = {};
+let submitted = {};
 let quizTitle = '';
 let currentTab = 'prompt';
 
@@ -604,6 +607,11 @@ function normalizeQuestions(qs) {
       else if (typeof q.answer === 'string' && q.answer.includes(',')) q.type = 'sata';
       else q.type = 'multiple';
     }
+    q.instruction = q.instruction || (q.type === 'sata'
+      ? 'Select all that apply.'
+      : q.type === 'order'
+        ? 'Rank in the correct order.'
+        : 'Select one answer.');
 
     if (q.type === 'order') {
       const orderAnswer = Array.isArray(q.answer) ? q.answer : String(q.answer || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -687,7 +695,9 @@ function loadQuestions(data, title) {
   questions = normalizeQuestions(qs);
   quizTitle = (data.title || title || 'Quiz').slice(0,60);
   answers = {};
+  submitted = {};
   currentIndex = 0;
+  questions = shuffleArray(questions);
   upsertQuizLibrary(questions, quizTitle);
   startQuiz();
 }
@@ -729,6 +739,9 @@ function renderQuestion() {
   document.getElementById('q-total').textContent = total;
   document.getElementById('quiz-chapter-label').innerHTML = `<strong>${escHtml(quizTitle)}</strong>`;
   document.getElementById('q-num-label').textContent = `Question ${currentIndex + 1}`;
+  const typeLabel = q.type === 'sata' ? 'Multi-select (SATA)' : q.type === 'order' ? 'Rank / Order' : 'Single select';
+  document.getElementById('q-type-label').textContent = `Type: ${typeLabel}`;
+  document.getElementById('q-instruction-label').textContent = `🧭 ${q.instruction || 'Select one answer.'}`;
   document.getElementById('q-text').textContent = q.question;
   const answeredCount = Object.keys(answers).length;
   const pctComplete = Math.round((answeredCount / total) * 100);
@@ -740,6 +753,7 @@ function renderQuestion() {
   const checkBtn = document.getElementById('btn-check');
   const letters = ['A','B','C','D','E'];
   const saved = answers[currentIndex];
+  const isSubmitted = !!submitted[currentIndex];
   const type = q.type || 'multiple';
 
   if (type === 'order') {
@@ -750,15 +764,16 @@ function renderQuestion() {
       ${q.correctOrder.map((_, i) => `
         <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
           <strong style="min-width:24px;">${i + 1}.</strong>
-          <select onchange="setOrderSelection(${i}, this.value)" ${saved ? 'disabled' : ''} style="flex:1; border:1px solid var(--border); border-radius:8px; padding:10px;">
+          <select onchange="setOrderSelection(${i}, this.value)" ${isSubmitted ? 'disabled' : ''} style="flex:1; border:1px solid var(--border); border-radius:8px; padding:10px;">
             <option value="">Choose item...</option>
             ${q.options.map(opt => `<option value="${escHtml(opt)}" ${selected[i] === opt ? 'selected' : ''}>${escHtml(opt)}</option>`).join('')}
           </select>
         </div>
       `).join('')}
-      <div class="review-expl">Items: ${q.options.map(o => `• ${escHtml(o)}`).join('<br>')}</div>
+      <div class="review-expl"><strong>Items to rank:</strong><br>${q.options.map((o, i) => `${i + 1}) ${escHtml(o)}`).join('<br>')}</div>
     `;
-    checkBtn.disabled = saved !== undefined || selected.length !== q.correctOrder.length || selected.some(x => !x);
+    const hasDupes = new Set(selected.filter(Boolean)).size !== selected.filter(Boolean).length;
+    checkBtn.disabled = isSubmitted || selected.length !== q.correctOrder.length || selected.some(x => !x) || hasDupes;
   } else {
     const selectedSet = new Set(Array.isArray(saved) ? saved : (saved ? [saved] : []));
     checkBtn.style.display = type === 'sata' ? 'inline-flex' : 'none';
@@ -767,7 +782,7 @@ function renderQuestion() {
       const optText = typeof opt === 'string' ? opt : (opt.text || JSON.stringify(opt));
       let cls = 'option';
       if (selectedSet.has(letter)) cls += ' selected';
-      if (saved !== undefined) {
+      if (isSubmitted) {
         cls += ' disabled';
         const correctLetters = type === 'sata' ? (q.answer || []) : [String(q.answer).trim().toUpperCase()];
         if (correctLetters.includes(letter)) cls += ' correct';
@@ -778,12 +793,12 @@ function renderQuestion() {
         <span class="opt-text">${escHtml(optText)}</span>
       </button>`;
     }).join('');
-    checkBtn.disabled = type === 'sata' ? !selectedSet.size || saved !== undefined : true;
+    checkBtn.disabled = type === 'sata' ? !selectedSet.size || isSubmitted : true;
   }
 
   // Feedback
   const fb = document.getElementById('feedback-box');
-  if (saved !== undefined) {
+  if (isSubmitted) {
     showFeedback(saved, q);
   } else {
     fb.classList.remove('show');
@@ -792,20 +807,20 @@ function renderQuestion() {
   // Nav buttons
   document.getElementById('btn-prev').style.display = currentIndex > 0 ? 'inline-flex' : 'none';
   const nextBtn = document.getElementById('btn-next');
-  nextBtn.disabled = saved === undefined;
+  nextBtn.disabled = !isSubmitted;
   nextBtn.textContent = currentIndex === total - 1 ? 'See Results →' : 'Next →';
 
   // Live score
   const correct = Object.entries(answers).filter(([idx, ans]) => {
-    const correctLetter = String(questions[+idx].answer).trim().toUpperCase();
-    return ans === correctLetter;
+    return submitted[+idx] && isAnswerCorrect(ans, questions[+idx]);
   }).length;
-  document.getElementById('live-score').textContent = `${correct}/${Object.keys(answers).length}`;
-  saveProgressState({ quizTitle, currentIndex, answers, questions, date: Date.now() });
+  const completed = Object.keys(submitted).filter(k => submitted[k]).length;
+  document.getElementById('live-score').textContent = `${correct}/${completed}`;
+  saveProgressState({ quizTitle, currentIndex, answers, submitted, questions, date: Date.now() });
 }
 
 function selectAnswer(letter, el) {
-  if (answers[currentIndex] !== undefined) return;
+  if (submitted[currentIndex]) return;
   answers[currentIndex] = letter;
 
   const q = questions[currentIndex];
@@ -820,19 +835,20 @@ function selectAnswer(letter, el) {
 
   showFeedback(letter, q);
   playAnswerSound(letter === correctLetter);
+  submitted[currentIndex] = true;
   document.getElementById('btn-next').disabled = false;
-  saveProgressState({ quizTitle, currentIndex, answers, questions, date: Date.now() });
+  saveProgressState({ quizTitle, currentIndex, answers, submitted, questions, date: Date.now() });
 }
 
 function toggleSata(letter) {
-  if (answers[currentIndex] !== undefined) return;
+  if (submitted[currentIndex]) return;
   const current = Array.isArray(answers[currentIndex]) ? answers[currentIndex] : [];
   answers[currentIndex] = current.includes(letter) ? current.filter(l => l !== letter) : [...current, letter];
   renderQuestion();
 }
 
 function setOrderSelection(pos, value) {
-  if (answers[currentIndex] !== undefined) return;
+  if (submitted[currentIndex]) return;
   const q = questions[currentIndex];
   const arr = Array.isArray(answers[currentIndex]) ? [...answers[currentIndex]] : Array(q.correctOrder.length).fill('');
   arr[pos] = value;
@@ -845,10 +861,11 @@ function checkCurrentAnswer() {
   if (answers[currentIndex] === undefined) return;
   const chosen = answers[currentIndex];
   showFeedback(chosen, q);
+  submitted[currentIndex] = true;
   document.getElementById('btn-next').disabled = false;
   const isCorrect = isAnswerCorrect(chosen, q);
   playAnswerSound(isCorrect);
-  saveProgressState({ quizTitle, currentIndex, answers, questions, date: Date.now() });
+  saveProgressState({ quizTitle, currentIndex, answers, submitted, questions, date: Date.now() });
 }
 
 function isAnswerCorrect(chosen, q) {
@@ -997,13 +1014,14 @@ function trackMissedQuestions() {
   saveMissedQuestions(Array.from(missedMap.values()).slice(-300));
 }
 
-function restartQuiz() { answers = {}; currentIndex = 0; startQuiz(); }
+function restartQuiz() { answers = {}; submitted = {}; currentIndex = 0; startQuiz(); }
 
 function retryWrong() {
   const wrongOnes = questions.filter((q, i) => !isAnswerCorrect(answers[i], q));
   if (!wrongOnes.length) return;
   questions = wrongOnes;
   answers = {};
+  submitted = {};
   currentIndex = 0;
   startQuiz();
 }
@@ -1029,6 +1047,7 @@ function resumeProgressIfAvailable() {
   questions = saved.questions;
   quizTitle = saved.quizTitle || 'Quiz';
   answers = saved.answers || {};
+  submitted = saved.submitted || {};
   currentIndex = Math.min(saved.currentIndex || 0, questions.length - 1);
   startQuiz();
 }
@@ -1079,6 +1098,7 @@ Use exactly this format and key order for EVERY object:
   {
     "id": 1,
     "type": "multiple",
+    "instruction": "Select one answer.",
     "question": "Complete clinical question text ending with a question mark?",
     "options": ["Option one text", "Option two text", "Option three text", "Option four text"],
     "answer": "A",
@@ -1091,6 +1111,10 @@ Rules:
 - The "answer" field must be a single letter: A, B, C, or D
 - For "type":"sata", "answer" must be an array of letters like ["A","C"]
 - For "type":"order", "answer" must be an array in correct order (letters or exact option text)
+- "instruction" is required and must match type:
+  - multiple: "Select one answer."
+  - sata: "Select all that apply."
+  - order: "Rank in the correct order."
 - Each question must have exactly 4 options
 - Options must be plain option text only (do NOT prefix with A./B./C./D.)
 - Include a clear explanation for every question
