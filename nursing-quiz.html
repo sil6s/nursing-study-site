@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NursePrep – Study Quiz</title>
+<link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f7f6f3;
+    --surface: #ffffff;
+    --surface-2: #f0efec;
+    --border: #e2e0db;
+    --text: #1a1916;
+    --text-muted: #6b6860;
+    --accent: #2d5016;
+    --accent-light: #e8f0e0;
+    --correct: #2d6a2d;
+    --correct-bg: #edf7ed;
+    --wrong: #8b2020;
+    --wrong-bg: #fdf0f0;
+    --radius: 14px;
+    --shadow: 0 2px 12px rgba(0,0,0,0.07);
+    --shadow-lg: 0 8px 32px rgba(0,0,0,0.10);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    line-height: 1.6;
+  }
+
+  /* ── HEADER ── */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .logo { font-family: 'Lora', serif; font-size: 1.3rem; font-weight: 700; color: var(--accent); letter-spacing: -0.02em; }
+  .logo span { color: var(--text-muted); font-weight: 400; font-size: 0.95rem; margin-left: 8px; font-family: 'DM Sans', sans-serif; }
+  .header-right { display: flex; gap: 10px; align-items: center; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer; font-family: inherit; font-size: 0.875rem; font-weight: 500; transition: all 0.15s; }
+  .btn-ghost { background: transparent; color: var(--text-muted); border: 1px solid var(--border); }
+  .btn-ghost:hover { background: var(--surface-2); color: var(--text); }
+  .btn-primary { background: var(--accent); color: white; }
+  .btn-primary:hover { background: #3a6b1e; }
+  .btn-sm { padding: 6px 12px; font-size: 0.8rem; }
+
+  /* ── LAYOUT ── */
+  .app { max-width: 860px; margin: 0 auto; padding: 32px 20px 80px; }
+
+  /* ── LANDING / UPLOAD ── */
+  #screen-home { display: block; }
+  #screen-quiz { display: none; }
+  #screen-results { display: none; }
+
+  .welcome-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 40px;
+    text-align: center;
+    box-shadow: var(--shadow);
+  }
+  .welcome-card h1 { font-family: 'Lora', serif; font-size: 2rem; font-weight: 700; margin-bottom: 10px; }
+  .welcome-card p { color: var(--text-muted); max-width: 480px; margin: 0 auto 32px; font-size: 1rem; }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 28px; }
+  @media (max-width: 640px) { .two-col { grid-template-columns: 1fr; } .welcome-card { padding: 24px; } }
+
+  .action-card {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px 24px;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.18s;
+  }
+  .action-card:hover { border-color: var(--accent); box-shadow: 0 4px 16px rgba(45,80,22,0.10); transform: translateY(-2px); }
+  .action-icon { font-size: 2rem; margin-bottom: 12px; display: block; }
+  .action-card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 6px; }
+  .action-card p { font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; }
+
+  /* Upload zone */
+  .upload-zone {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 36px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.18s;
+    background: var(--bg);
+    margin-top: 24px;
+  }
+  .upload-zone:hover, .upload-zone.drag-over { border-color: var(--accent); background: var(--accent-light); }
+  .upload-zone h3 { font-size: 1rem; font-weight: 600; margin-bottom: 6px; }
+  .upload-zone p { font-size: 0.85rem; color: var(--text-muted); }
+  .upload-zone input { display: none; }
+  .upload-hint { margin-top: 16px; }
+
+  /* ── MODAL (AI Generator) ── */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 200; align-items: center; justify-content: center; padding: 20px; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: var(--surface); border-radius: var(--radius); max-width: 620px; width: 100%; padding: 36px; box-shadow: var(--shadow-lg); }
+  .modal h2 { font-family: 'Lora', serif; font-size: 1.4rem; margin-bottom: 8px; }
+  .modal .subtitle { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 24px; }
+  .modal label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
+  .modal textarea, .modal input[type=number], .modal select {
+    width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px;
+    font-family: inherit; font-size: 0.9rem; background: var(--bg); color: var(--text);
+    resize: vertical; transition: border 0.15s;
+  }
+  .modal textarea:focus, .modal input:focus, .modal select:focus { outline: none; border-color: var(--accent); }
+  .modal textarea { min-height: 120px; }
+  .form-group { margin-bottom: 18px; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 500px) { .form-row { grid-template-columns: 1fr; } .modal { padding: 24px; } }
+  .modal-footer { display: flex; gap: 10px; justify-content: flex-end; margin-top: 24px; }
+  .prompt-box {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 200px;
+    overflow-y: auto;
+    cursor: text;
+    user-select: all;
+    font-family: monospace;
+  }
+  .copy-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .copy-row span { font-size: 0.85rem; font-weight: 600; }
+
+  /* Generating spinner */
+  .generating { text-align: center; padding: 32px 0; }
+  .spinner { display: inline-block; width: 36px; height: 36px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 14px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .generating p { color: var(--text-muted); font-size: 0.9rem; }
+
+  /* ── QUIZ SCREEN ── */
+  .quiz-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
+  .quiz-meta { font-size: 0.85rem; color: var(--text-muted); }
+  .quiz-meta strong { color: var(--text); }
+
+  .progress-bar { height: 6px; background: var(--border); border-radius: 99px; margin-bottom: 28px; }
+  .progress-fill { height: 100%; background: var(--accent); border-radius: 99px; transition: width 0.4s ease; }
+
+  .question-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 36px;
+    box-shadow: var(--shadow);
+    margin-bottom: 20px;
+  }
+  @media (max-width: 500px) { .question-card { padding: 22px; } }
+  .question-num { font-size: 0.8rem; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px; }
+  .question-text { font-family: 'Lora', serif; font-size: 1.15rem; font-weight: 600; line-height: 1.55; margin-bottom: 28px; }
+
+  .options { display: flex; flex-direction: column; gap: 10px; }
+  .option {
+    display: flex; align-items: flex-start; gap: 14px;
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    cursor: pointer;
+    transition: all 0.15s;
+    background: var(--bg);
+    text-align: left;
+    font-family: inherit; font-size: 0.95rem; color: var(--text);
+  }
+  .option:hover:not(.disabled) { border-color: var(--accent); background: var(--accent-light); }
+  .option .opt-letter {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--border); color: var(--text-muted);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.78rem; font-weight: 700; flex-shrink: 0; margin-top: 1px;
+    transition: all 0.15s;
+  }
+  .option .opt-text { flex: 1; line-height: 1.5; }
+  .option.selected { border-color: var(--accent); background: var(--accent-light); }
+  .option.selected .opt-letter { background: var(--accent); color: white; }
+  .option.correct { border-color: var(--correct); background: var(--correct-bg); }
+  .option.correct .opt-letter { background: var(--correct); color: white; }
+  .option.wrong { border-color: var(--wrong); background: var(--wrong-bg); }
+  .option.wrong .opt-letter { background: var(--wrong); color: white; }
+  .option.disabled { cursor: default; }
+
+  .feedback-box {
+    margin-top: 20px;
+    border-radius: 10px;
+    padding: 18px 20px;
+    font-size: 0.9rem;
+    line-height: 1.6;
+    display: none;
+    animation: fadeUp 0.25s ease;
+  }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  .feedback-box.show { display: block; }
+  .feedback-box.correct-fb { background: var(--correct-bg); border: 1px solid #b2d9b2; }
+  .feedback-box.wrong-fb { background: var(--wrong-bg); border: 1px solid #e8b4b4; }
+  .feedback-label { font-weight: 700; font-size: 0.95rem; margin-bottom: 6px; }
+  .feedback-label.c { color: var(--correct); }
+  .feedback-label.w { color: var(--wrong); }
+
+  .quiz-nav { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+
+  /* ── RESULTS SCREEN ── */
+  .results-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 40px; text-align: center; box-shadow: var(--shadow); }
+  .score-ring { width: 130px; height: 130px; margin: 0 auto 24px; position: relative; }
+  .score-ring svg { transform: rotate(-90deg); }
+  .score-ring .ring-bg { fill: none; stroke: var(--border); stroke-width: 10; }
+  .score-ring .ring-fill { fill: none; stroke: var(--accent); stroke-width: 10; stroke-linecap: round; transition: stroke-dashoffset 1s ease; }
+  .score-label { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .score-pct { font-family: 'Lora', serif; font-size: 2rem; font-weight: 700; line-height: 1; }
+  .score-sub { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
+  .results-title { font-family: 'Lora', serif; font-size: 1.6rem; margin-bottom: 8px; }
+  .results-msg { color: var(--text-muted); margin-bottom: 28px; }
+  .stats-row { display: flex; justify-content: center; gap: 32px; margin-bottom: 32px; flex-wrap: wrap; }
+  .stat { text-align: center; }
+  .stat-val { font-size: 1.5rem; font-weight: 700; }
+  .stat-val.correct-val { color: var(--correct); }
+  .stat-val.wrong-val { color: var(--wrong); }
+  .stat-lbl { font-size: 0.8rem; color: var(--text-muted); margin-top: 2px; }
+  .results-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+
+  /* Review list */
+  .review-list { margin-top: 32px; display: flex; flex-direction: column; gap: 16px; }
+  .review-item { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
+  .review-item.r-correct { border-left: 4px solid var(--correct); }
+  .review-item.r-wrong { border-left: 4px solid var(--wrong); }
+  .review-q { font-family: 'Lora', serif; font-size: 0.95rem; font-weight: 600; margin-bottom: 8px; }
+  .review-ans { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 6px; }
+  .review-ans strong { color: var(--text); }
+  .review-expl { font-size: 0.85rem; color: var(--text-muted); background: var(--surface-2); border-radius: 6px; padding: 10px 12px; margin-top: 8px; }
+
+  /* Toast */
+  .toast {
+    position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: var(--text); color: white; padding: 10px 20px; border-radius: 8px;
+    font-size: 0.875rem; opacity: 0; transition: all 0.25s; z-index: 999; pointer-events: none;
+    white-space: nowrap;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* ── PREVIOUS SESSIONS ── */
+  .sessions-section { margin-top: 32px; }
+  .sessions-section h2 { font-family: 'Lora', serif; font-size: 1.1rem; margin-bottom: 14px; }
+  .session-list { display: flex; flex-direction: column; gap: 10px; }
+  .session-item {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 18px; display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 8px;
+  }
+  .session-info { font-size: 0.875rem; }
+  .session-info strong { display: block; margin-bottom: 2px; }
+  .session-info span { color: var(--text-muted); font-size: 0.8rem; }
+  .session-score { font-size: 1.1rem; font-weight: 700; }
+  .session-score.good { color: var(--correct); }
+  .session-score.bad { color: var(--wrong); }
+  .session-score.mid { color: #b07a00; }
+
+  /* Tabs inside modal */
+  .tabs { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
+  .tab { padding: 10px 18px; font-size: 0.875rem; font-weight: 500; cursor: pointer; border-bottom: 2px solid transparent; color: var(--text-muted); transition: all 0.15s; }
+  .tab.active { border-bottom-color: var(--accent); color: var(--accent); }
+
+  /* Error */
+  .error-msg { background: var(--wrong-bg); border: 1px solid #e8b4b4; color: var(--wrong); border-radius: 8px; padding: 12px 16px; font-size: 0.875rem; margin-top: 14px; display: none; }
+  .error-msg.show { display: block; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="logo">NursePrep <span>Study Quiz</span></div>
+  <div class="header-right">
+    <button class="btn btn-ghost btn-sm" id="btn-generate">✨ Generate Questions</button>
+    <button class="btn btn-ghost btn-sm" id="btn-upload-header" style="display:none">📂 New Quiz</button>
+  </div>
+</header>
+
+<!-- MAIN APP -->
+<div class="app">
+
+  <!-- ══ HOME SCREEN ══ -->
+  <div id="screen-home">
+    <div class="welcome-card">
+      <h1>Welcome Back 👩‍⚕️</h1>
+      <p>Upload your question file to start a quiz, or use the AI generator to create a new set of questions from your study notes.</p>
+
+      <div class="two-col">
+        <div class="action-card" id="card-upload" onclick="document.getElementById('file-input').click()">
+          <span class="action-icon">📂</span>
+          <h3>Upload Question File</h3>
+          <p>Upload a JSON question file you've already generated and start quizzing yourself right away.</p>
+        </div>
+        <div class="action-card" id="card-generate" onclick="openGenerateModal()">
+          <span class="action-icon">✨</span>
+          <h3>Generate Questions with AI</h3>
+          <p>Paste your notes or textbook content and let AI create a ready-to-use quiz file for you.</p>
+        </div>
+      </div>
+
+      <div class="upload-zone" id="upload-zone">
+        <input type="file" id="file-input" accept=".json">
+        <span style="font-size:2rem; display:block; margin-bottom:12px;">📋</span>
+        <h3>Drop your JSON file here</h3>
+        <p>Or click anywhere in this box to browse your files</p>
+        <div class="upload-hint"><button class="btn btn-ghost btn-sm" onclick="document.getElementById('file-input').click()">Browse Files</button></div>
+      </div>
+      <div class="error-msg" id="upload-error"></div>
+    </div>
+
+    <!-- Previous Sessions -->
+    <div class="sessions-section" id="sessions-section" style="display:none">
+      <h2>📊 Your Recent Sessions</h2>
+      <div class="session-list" id="session-list"></div>
+    </div>
+  </div>
+
+  <!-- ══ QUIZ SCREEN ══ -->
+  <div id="screen-quiz">
+    <div class="quiz-header">
+      <div>
+        <div class="quiz-meta" id="quiz-chapter-label"></div>
+        <div class="quiz-meta" style="margin-top:2px">Question <strong id="q-current">1</strong> of <strong id="q-total">0</strong></div>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center">
+        <span style="font-size:0.85rem; color:var(--text-muted)">Score: <strong id="live-score">0</strong></span>
+        <button class="btn btn-ghost btn-sm" onclick="exitQuiz()">Exit</button>
+      </div>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
+
+    <div class="question-card" id="question-card">
+      <div class="question-num" id="q-num-label">Question 1</div>
+      <div class="question-text" id="q-text"></div>
+      <div class="options" id="options-container"></div>
+      <div class="feedback-box" id="feedback-box">
+        <div class="feedback-label" id="feedback-label"></div>
+        <div id="feedback-text"></div>
+      </div>
+    </div>
+
+    <div class="quiz-nav">
+      <button class="btn btn-ghost" id="btn-prev" onclick="prevQuestion()" style="display:none">← Previous</button>
+      <div></div>
+      <button class="btn btn-primary" id="btn-next" onclick="nextQuestion()" disabled>Next →</button>
+    </div>
+  </div>
+
+  <!-- ══ RESULTS SCREEN ══ -->
+  <div id="screen-results">
+    <div class="results-card">
+      <div class="score-ring">
+        <svg viewBox="0 0 130 130" width="130" height="130">
+          <circle class="ring-bg" cx="65" cy="65" r="55"/>
+          <circle class="ring-fill" id="ring-fill" cx="65" cy="65" r="55" stroke-dasharray="345.4" stroke-dashoffset="345.4"/>
+        </svg>
+        <div class="score-label">
+          <div class="score-pct" id="score-pct">0%</div>
+          <div class="score-sub">Score</div>
+        </div>
+      </div>
+      <div class="results-title" id="results-title">Quiz Complete!</div>
+      <div class="results-msg" id="results-msg"></div>
+      <div class="stats-row">
+        <div class="stat"><div class="stat-val correct-val" id="stat-correct">0</div><div class="stat-lbl">Correct</div></div>
+        <div class="stat"><div class="stat-val wrong-val" id="stat-wrong">0</div><div class="stat-lbl">Incorrect</div></div>
+        <div class="stat"><div class="stat-val" id="stat-total">0</div><div class="stat-lbl">Total</div></div>
+      </div>
+      <div class="results-actions">
+        <button class="btn btn-ghost" onclick="restartQuiz()">🔁 Retry Same Quiz</button>
+        <button class="btn btn-ghost" onclick="retryWrong()" id="btn-retry-wrong">❌ Practice Wrong Ones</button>
+        <button class="btn btn-primary" onclick="goHome()">🏠 New Quiz</button>
+      </div>
+    </div>
+    <div class="review-list" id="review-list"></div>
+  </div>
+</div>
+
+<!-- ══ GENERATE MODAL ══ -->
+<div class="modal-overlay" id="modal-generate">
+  <div class="modal">
+    <h2>✨ Generate Questions</h2>
+    <p class="subtitle">Tell AI what to create, copy the prompt, paste it into Claude or ChatGPT, then upload the result here.</p>
+
+    <div class="tabs">
+      <div class="tab active" id="tab-prompt" onclick="switchTab('prompt')">Step 1 – Get Prompt</div>
+      <div class="tab" id="tab-upload-json" onclick="switchTab('upload-json')">Step 2 – Upload Result</div>
+    </div>
+
+    <!-- TAB: PROMPT -->
+    <div id="tab-content-prompt">
+      <div class="form-group">
+        <label>📚 What topic or chapter is this for?</label>
+        <input type="text" id="gen-topic" placeholder="e.g. Cardiac pharmacology, Chapter 12 – Fluids & Electrolytes" style="width:100%; padding:12px 14px; border:1px solid var(--border); border-radius:8px; font-family:inherit; font-size:0.9rem; background:var(--bg);">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>🔢 How many questions?</label>
+          <input type="number" id="gen-count" value="50" min="5" max="200">
+        </div>
+        <div class="form-group">
+          <label>⚡ Difficulty level</label>
+          <select id="gen-difficulty">
+            <option value="mixed">Mixed (recommended)</option>
+            <option value="easy">Easy – basic recall</option>
+            <option value="medium">Medium – application</option>
+            <option value="hard">Hard – NCLEX style</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>📝 Paste your notes or content here (optional but helps a lot)</label>
+        <textarea id="gen-notes" placeholder="Paste textbook sections, lecture notes, or any content you want the questions based on..."></textarea>
+      </div>
+
+      <div class="copy-row">
+        <span>📋 Your AI Prompt</span>
+        <button class="btn btn-ghost btn-sm" onclick="copyPrompt()">Copy Prompt</button>
+      </div>
+      <div class="prompt-box" id="generated-prompt"></div>
+      <p style="font-size:0.8rem; color:var(--text-muted); margin-top:10px;">Copy this prompt → paste into Claude.ai or ChatGPT → copy the JSON it gives you → come back to Step 2.</p>
+    </div>
+
+    <!-- TAB: UPLOAD JSON -->
+    <div id="tab-content-upload-json" style="display:none">
+      <p style="font-size:0.9rem; color:var(--text-muted); margin-bottom:16px;">After the AI gives you a JSON response, paste it below and click Load, <em>or</em> upload the JSON file directly.</p>
+      <div class="form-group">
+        <label>Paste JSON here</label>
+        <textarea id="paste-json" placeholder='[{"id":1,"question":"...","options":[...],"answer":"A","explanation":"..."}]' style="min-height:160px; font-family:monospace; font-size:0.8rem;"></textarea>
+      </div>
+      <p style="text-align:center; color:var(--text-muted); font-size:0.85rem; margin-bottom:12px;">— or —</p>
+      <button class="btn btn-ghost" style="width:100%; justify-content:center" onclick="document.getElementById('file-input').click(); closeModal()">📂 Upload JSON File</button>
+      <div class="error-msg" id="paste-error"></div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Close</button>
+      <button class="btn btn-primary" id="modal-action-btn" onclick="modalAction()">Load Questions</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ── STATE ──
+let questions = [];
+let currentIndex = 0;
+let answers = {};
+let quizTitle = '';
+let currentTab = 'prompt';
+
+// ── STORAGE ──
+const SESSIONS_KEY = 'nurseprep_sessions';
+
+function saveSessions(s) { try { localStorage.setItem(SESSIONS_KEY, JSON.stringify(s)); } catch(e){} }
+function loadSessions() { try { return JSON.parse(localStorage.getItem(SESSIONS_KEY) || '[]'); } catch(e){ return []; } }
+
+// ── SCREENS ──
+function showScreen(id) {
+  ['screen-home','screen-quiz','screen-results'].forEach(s => document.getElementById(s).style.display = 'none');
+  document.getElementById(id).style.display = 'block';
+  document.getElementById('btn-upload-header').style.display = id !== 'screen-home' ? 'inline-flex' : 'none';
+}
+
+// ── HOME ──
+function goHome() { showScreen('screen-home'); renderSessions(); }
+
+function renderSessions() {
+  const sessions = loadSessions();
+  const sec = document.getElementById('sessions-section');
+  const list = document.getElementById('session-list');
+  if (!sessions.length) { sec.style.display = 'none'; return; }
+  sec.style.display = 'block';
+  list.innerHTML = sessions.slice(-8).reverse().map(s => {
+    const pct = Math.round((s.correct / s.total) * 100);
+    const cls = pct >= 80 ? 'good' : pct >= 60 ? 'mid' : 'bad';
+    const date = new Date(s.date).toLocaleDateString(undefined, {month:'short', day:'numeric', year:'numeric'});
+    return `<div class="session-item">
+      <div class="session-info"><strong>${escHtml(s.title)}</strong><span>${date} · ${s.total} questions</span></div>
+      <div class="session-score ${cls}">${pct}%</div>
+    </div>`;
+  }).join('');
+}
+
+// ── FILE UPLOAD ──
+const fileInput = document.getElementById('file-input');
+const uploadZone = document.getElementById('upload-zone');
+
+uploadZone.addEventListener('click', () => fileInput.click());
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault(); uploadZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) handleFile(file);
+});
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) handleFile(fileInput.files[0]); });
+document.getElementById('btn-upload-header').addEventListener('click', () => { goHome(); });
+
+function handleFile(file) {
+  const err = document.getElementById('upload-error');
+  err.classList.remove('show');
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      loadQuestions(data, file.name.replace('.json',''));
+    } catch {
+      err.textContent = '❌ That file doesn\'t look right. Make sure it\'s a valid JSON file generated by the AI prompt.';
+      err.classList.add('show');
+    }
+  };
+  reader.readAsText(file);
+}
+
+// ── LOAD QUESTIONS ──
+function loadQuestions(data, title) {
+  // Normalise: accept array or {questions:[...], title:"..."}
+  let qs = Array.isArray(data) ? data : (data.questions || []);
+  if (!qs.length) { showToast('No questions found in that file.'); return; }
+
+  // Validate basic structure
+  qs = qs.filter(q => q.question && q.options && q.answer);
+  if (!qs.length) { showToast('Questions are missing required fields. Check your JSON.'); return; }
+
+  questions = qs;
+  quizTitle = (data.title || title || 'Quiz').slice(0,60);
+  answers = {};
+  currentIndex = 0;
+  startQuiz();
+}
+
+// ── QUIZ ──
+function startQuiz() {
+  showScreen('screen-quiz');
+  renderQuestion();
+}
+
+function renderQuestion() {
+  const q = questions[currentIndex];
+  const total = questions.length;
+
+  document.getElementById('q-current').textContent = currentIndex + 1;
+  document.getElementById('q-total').textContent = total;
+  document.getElementById('quiz-chapter-label').innerHTML = `<strong>${escHtml(quizTitle)}</strong>`;
+  document.getElementById('q-num-label').textContent = `Question ${currentIndex + 1}`;
+  document.getElementById('q-text').textContent = q.question;
+  document.getElementById('progress-fill').style.width = `${((currentIndex) / total) * 100}%`;
+
+  // Options
+  const opts = document.getElementById('options-container');
+  const letters = ['A','B','C','D','E'];
+  const saved = answers[currentIndex];
+
+  opts.innerHTML = q.options.map((opt, i) => {
+    const letter = letters[i] || String(i+1);
+    const optText = typeof opt === 'string' ? opt : (opt.text || JSON.stringify(opt));
+    let cls = 'option';
+    if (saved !== undefined) {
+      cls += ' disabled';
+      const correctLetter = String(q.answer).trim().toUpperCase();
+      if (letter === correctLetter) cls += ' correct';
+      else if (letter === saved) cls += ' wrong';
+    }
+    return `<button class="${cls}" onclick="selectAnswer('${letter}', this)" data-letter="${letter}">
+      <span class="opt-letter">${letter}</span>
+      <span class="opt-text">${escHtml(optText)}</span>
+    </button>`;
+  }).join('');
+
+  // Feedback
+  const fb = document.getElementById('feedback-box');
+  if (saved !== undefined) {
+    showFeedback(saved, q);
+  } else {
+    fb.classList.remove('show');
+  }
+
+  // Nav buttons
+  document.getElementById('btn-prev').style.display = currentIndex > 0 ? 'inline-flex' : 'none';
+  const nextBtn = document.getElementById('btn-next');
+  nextBtn.disabled = saved === undefined;
+  nextBtn.textContent = currentIndex === total - 1 ? 'See Results →' : 'Next →';
+
+  // Live score
+  const correct = Object.entries(answers).filter(([idx, ans]) => {
+    const correctLetter = String(questions[+idx].answer).trim().toUpperCase();
+    return ans === correctLetter;
+  }).length;
+  document.getElementById('live-score').textContent = `${correct}/${Object.keys(answers).length}`;
+}
+
+function selectAnswer(letter, el) {
+  if (answers[currentIndex] !== undefined) return;
+  answers[currentIndex] = letter;
+
+  const q = questions[currentIndex];
+  const correctLetter = String(q.answer).trim().toUpperCase();
+  const allOpts = document.querySelectorAll('.option');
+  allOpts.forEach(o => {
+    o.classList.add('disabled');
+    const l = o.getAttribute('data-letter');
+    if (l === correctLetter) o.classList.add('correct');
+    else if (l === letter && letter !== correctLetter) o.classList.add('wrong');
+  });
+
+  showFeedback(letter, q);
+  document.getElementById('btn-next').disabled = false;
+}
+
+function showFeedback(chosen, q) {
+  const correctLetter = String(q.answer).trim().toUpperCase();
+  const isCorrect = chosen === correctLetter;
+  const fb = document.getElementById('feedback-box');
+  const lbl = document.getElementById('feedback-label');
+  const txt = document.getElementById('feedback-text');
+
+  fb.className = 'feedback-box show ' + (isCorrect ? 'correct-fb' : 'wrong-fb');
+  lbl.className = 'feedback-label ' + (isCorrect ? 'c' : 'w');
+  lbl.textContent = isCorrect ? '✅ Correct!' : `❌ Incorrect — The correct answer is ${correctLetter}`;
+  txt.textContent = q.explanation || '';
+}
+
+function nextQuestion() {
+  if (currentIndex < questions.length - 1) {
+    currentIndex++;
+    renderQuestion();
+    window.scrollTo({top:0, behavior:'smooth'});
+  } else {
+    showResults();
+  }
+}
+
+function prevQuestion() {
+  if (currentIndex > 0) { currentIndex--; renderQuestion(); }
+}
+
+function exitQuiz() {
+  if (Object.keys(answers).length > 0 && confirm('Exit quiz? Your progress will be saved in your session history if you finish.')) goHome();
+  else if (Object.keys(answers).length === 0) goHome();
+}
+
+// ── RESULTS ──
+function showResults() {
+  showScreen('screen-results');
+  const total = questions.length;
+  const correct = Object.entries(answers).filter(([i, ans]) => String(questions[+i].answer).trim().toUpperCase() === ans).length;
+  const pct = Math.round((correct / total) * 100);
+
+  document.getElementById('score-pct').textContent = pct + '%';
+  document.getElementById('stat-correct').textContent = correct;
+  document.getElementById('stat-wrong').textContent = total - correct;
+  document.getElementById('stat-total').textContent = total;
+
+  const msg = pct >= 90 ? 'Outstanding work! You\'re very well prepared.' :
+              pct >= 80 ? 'Great job! Keep reviewing the ones you missed.' :
+              pct >= 70 ? 'Good effort. Focus on the explanations below.' :
+                          'Keep going — review the explanations and try again!';
+  document.getElementById('results-msg').textContent = msg;
+  document.getElementById('results-title').textContent = pct >= 80 ? '🎉 Great Work!' : '📖 Keep Studying!';
+
+  // Ring animation
+  const circumference = 345.4;
+  const offset = circumference - (pct / 100) * circumference;
+  const ring = document.getElementById('ring-fill');
+  ring.style.strokeDashoffset = circumference;
+  setTimeout(() => { ring.style.strokeDashoffset = offset; }, 100);
+
+  // Colour ring based on score
+  ring.style.stroke = pct >= 80 ? 'var(--correct)' : pct >= 60 ? '#b07a00' : 'var(--wrong)';
+
+  // Show retry wrong button only if there are wrong ones
+  document.getElementById('btn-retry-wrong').style.display = (correct < total) ? 'inline-flex' : 'none';
+
+  // Save session
+  const sessions = loadSessions();
+  sessions.push({ title: quizTitle, correct, total, date: Date.now() });
+  saveSessions(sessions.slice(-50));
+
+  // Review list
+  const reviewList = document.getElementById('review-list');
+  reviewList.innerHTML = questions.map((q, i) => {
+    const userAns = answers[i];
+    const correctAns = String(q.answer).trim().toUpperCase();
+    const isCorrect = userAns === correctAns;
+    const letters = ['A','B','C','D','E'];
+    const optText = (letter) => {
+      const idx = letters.indexOf(letter);
+      const opt = q.options[idx];
+      return opt ? (typeof opt === 'string' ? opt : opt.text || '') : letter;
+    };
+    return `<div class="review-item ${isCorrect ? 'r-correct' : 'r-wrong'}">
+      <div class="review-q">${i+1}. ${escHtml(q.question)}</div>
+      ${!isCorrect ? `<div class="review-ans">Your answer: <strong>${userAns ? userAns + ' – ' + escHtml(optText(userAns)) : 'Not answered'}</strong></div>` : ''}
+      <div class="review-ans">Correct answer: <strong>${correctAns} – ${escHtml(optText(correctAns))}</strong></div>
+      ${q.explanation ? `<div class="review-expl">💡 ${escHtml(q.explanation)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function restartQuiz() { answers = {}; currentIndex = 0; startQuiz(); }
+
+function retryWrong() {
+  const wrongOnes = questions.filter((q, i) => String(q.answer).trim().toUpperCase() !== answers[i]);
+  if (!wrongOnes.length) return;
+  questions = wrongOnes;
+  answers = {};
+  currentIndex = 0;
+  startQuiz();
+}
+
+// ── GENERATE MODAL ──
+function openGenerateModal() {
+  document.getElementById('modal-generate').classList.add('open');
+  updatePromptPreview();
+}
+function closeModal() { document.getElementById('modal-generate').classList.remove('open'); }
+
+document.getElementById('modal-generate').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
+document.getElementById('btn-generate').addEventListener('click', openGenerateModal);
+
+['gen-topic','gen-count','gen-difficulty','gen-notes'].forEach(id => {
+  document.getElementById(id).addEventListener('input', updatePromptPreview);
+});
+
+function updatePromptPreview() {
+  const topic = document.getElementById('gen-topic').value.trim() || '[Your topic/chapter]';
+  const count = document.getElementById('gen-count').value || '50';
+  const diff = document.getElementById('gen-difficulty').value;
+  const notes = document.getElementById('gen-notes').value.trim();
+
+  const diffMap = {
+    mixed: 'a mix of easy recall, application-based, and NCLEX-style questions',
+    easy: 'basic recall and definition-level questions',
+    medium: 'application-based clinical scenario questions',
+    hard: 'challenging NCLEX-style select-all-that-apply and priority questions'
+  };
+
+  const prompt = `Please generate ${count} nursing school quiz questions on the topic: "${topic}".
+
+Difficulty: ${diffMap[diff]}.
+${notes ? `\nBase the questions on this content:\n"""\n${notes}\n"""\n` : ''}
+Return ONLY a valid JSON array with no extra text, markdown, or explanation. Use exactly this format:
+
+[
+  {
+    "id": 1,
+    "question": "Question text here?",
+    "options": ["A. Option one", "B. Option two", "C. Option three", "D. Option four"],
+    "answer": "A",
+    "explanation": "Clear explanation of why this is correct and why other options are wrong."
+  }
+]
+
+Rules:
+- The "answer" field must be a single letter: A, B, C, or D
+- Each question must have exactly 4 options
+- Include a clear explanation for every question
+- Only return the JSON array — nothing else`;
+
+  document.getElementById('generated-prompt').textContent = prompt;
+}
+
+function copyPrompt() {
+  const text = document.getElementById('generated-prompt').textContent;
+  navigator.clipboard.writeText(text).then(() => showToast('Prompt copied! Paste it into Claude or ChatGPT.'));
+}
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.getElementById('tab-prompt').classList.toggle('active', tab === 'prompt');
+  document.getElementById('tab-upload-json').classList.toggle('active', tab === 'upload-json');
+  document.getElementById('tab-content-prompt').style.display = tab === 'prompt' ? 'block' : 'none';
+  document.getElementById('tab-content-upload-json').style.display = tab === 'upload-json' ? 'block' : 'none';
+  document.getElementById('modal-action-btn').textContent = tab === 'prompt' ? 'Copy Prompt' : 'Load Questions';
+}
+
+function modalAction() {
+  if (currentTab === 'prompt') {
+    copyPrompt();
+  } else {
+    const raw = document.getElementById('paste-json').value.trim();
+    const err = document.getElementById('paste-error');
+    err.classList.remove('show');
+    if (!raw) { err.textContent = 'Please paste your JSON above.'; err.classList.add('show'); return; }
+    try {
+      const data = JSON.parse(raw);
+      closeModal();
+      loadQuestions(data, 'Pasted Quiz');
+    } catch {
+      err.textContent = '❌ That doesn\'t look like valid JSON. Make sure you copied the entire response from the AI.';
+      err.classList.add('show');
+    }
+  }
+}
+
+// ── TOAST ──
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ── HELPERS ──
+function escHtml(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── INIT ──
+updatePromptPreview();
+renderSessions();
+</script>
+</body>
+</html>
